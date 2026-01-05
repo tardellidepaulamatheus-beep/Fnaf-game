@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FNAF 4 - CICLO ETERNO</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: none; outline: none; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', monospace; color: white; }
+        .full-screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10000; flex-direction: column; background: #000; text-align: center; }
+        #main-menu { background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('menu.jpg') center/cover; }
+        #game-over-screen { display: none; background: #000; z-index: 20000; border: 5px solid #300; }
+        #game-container { display: none; width: 100vw; height: 100vh; position: relative; }
+        .scene { position: absolute; inset: 0; background-size: cover; background-position: center; display: none; z-index: 10; filter: brightness(0); }
+        #sc-room { display: block; filter: brightness(0.15); }
+        .light-on { filter: brightness(1) !important; z-index: 20 !important; }
+        #scare-overlay { position: fixed; inset: 0; z-index: 99999; display: none; background-size: cover; background-position: center; }
+        .overlay-closed { position: absolute; inset: 0; z-index: 50; display: none; background-size: cover; background-position: center; }
+        #flashlight-overlay { position: absolute; inset: 0; background: radial-gradient(circle 220px at center, transparent, rgba(0,0,0,0.94)); z-index: 45; display: none; pointer-events: none; }
+        #ui-actions { position: absolute; bottom: 5%; width: 100%; display: none; justify-content: space-around; z-index: 100; }
+        .action-btn { width: 95px; height: 95px; background: rgba(0,0,0,0.8); border: 2px solid #fff; border-radius: 50%; color: #fff; font-size: 14px; font-weight: bold; }
+        #btn-back { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: none; z-index: 100; background: #000; border: 1px solid #fff; color: white; padding: 15px 30px; }
+        #hud { position: fixed; top: 15px; right: 20px; font-size: 24px; z-index: 150; text-shadow: 2px 2px #000; }
+        .red-btn { padding: 15px 40px; background: none; color: #ff0000; border: 2px solid #ff0000; cursor: pointer; font-size: 20px; margin-top: 20px; text-transform: uppercase; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="main-menu" class="full-screen">
+    <h1 style="color:red; font-size: 40px; text-shadow: 4px 4px #000;">FNAF 4: MASTER</h1>
+    <div id="menu-record" style="color: gold; margin: 10px;">RECORDE: LVL 1</div>
+    <button class="red-btn" onclick="startGame()">START NIGHT</button>
+</div>
+
+<div id="game-over-screen" class="full-screen">
+    <h1 style="color:red; font-size: 60px;">GAME OVER</h1>
+    <p id="stats-display"></p>
+    <button class="red-btn" onclick="location.reload()">MENU</button>
+</div>
+
+<div id="game-container">
+    <div id="hud"><span id="h-val">12</span> AM | Lvl: <span id="lvl-val">1</span></div>
+    <div id="viewport">
+        <div id="sc-room" class="scene" style="background-image: url('quarto.jpg');">
+            <div style="position:absolute; left:0; width:25%; height:100%;" onclick="goto('left')"></div>
+            <div style="position:absolute; right:0; width:25%; height:100%;" onclick="goto('right')"></div>
+            <div style="position:absolute; top:20%; left:30%; width:40%; height:50%;" onclick="goto('closet')"></div>
+            <div style="position:absolute; bottom:0; width:100%; height:25%;" onclick="goto('bed')"></div>
+        </div>
+        <div id="sc-left" class="scene" style="background-image: url('corredor_esquerdo.jpg');"></div>
+        <div id="sc-right" class="scene" style="background-image: url('corredor_direito.jpg');"></div>
+        <div id="sc-bed" class="scene" style="background-image: url('cama.jpg');"></div>
+        <div id="sc-closet" class="scene" style="background-image: url('armário.jpg');"></div>
+        <div id="img-left-closed" class="overlay-closed" style="background-image: url('porta_esquerda_fechada.jpg');"></div>
+        <div id="img-right-closed" class="overlay-closed" style="background-image: url('porta_direita_fechada.jpg');"></div>
+        <div id="img-closet-closed" class="overlay-closed" style="background-image: url('armário_fechado.jpg');"></div>
+        <div id="flashlight-overlay"></div>
+        <button id="btn-back" onclick="handleBack()">VOLTAR</button>
+        <div id="ui-actions">
+            <button class="action-btn" id="btn-door">FECHAR</button>
+            <button class="action-btn" id="btn-light">LUZ</button>
+        </div>
+    </div>
+</div>
+<div id="scare-overlay"></div>
+
+<script>
+    let hour = 0, difficulty = 1, active = false, pos = 'room', doorClosed = false, isFlashing = false;
+    let fredbearActive = false, fbInactivityTimer = null, foxyAttackTimer = null, hourInterval = null;
+    let ai = { bonnie: 0, chica: 0, foxyLoc: 'none', foxyStage: 0, freddles: 0, fredbear: 'none' };
+
+    const sfx = {
+        luz: new Audio('luz_ligar.mp3'),
+        passinho: new Audio('passinho.mp3'),
+        passosIA: new Audio('passos.mp3'),
+        respira: new Audio('respiração.mp3'),
+        scare: new Audio('jumpscare.mp3'),
+        foxyRun: new Audio('foxy_run.mp3'),
+        foxyGrito: new Audio('foxy_gritando.mp3'),
+        freddles: new Audio('freddles.mp3'),
+        fbEsq: new Audio('fredbear_esquerda.mp3'),
+        fbDir: new Audio('fredbear_direita.mp3'),
+        fbCama: new Audio('fredbear_cama.mp3'),
+        risada: new Audio('risada.mp3')
+    };
+
+    sfx.respira.loop = true; sfx.freddles.loop = true;
+
+    function startGame() {
+        active = true;
+        document.getElementById('main-menu').style.display = 'none';
+        document.getElementById('game-container').style.display = 'block';
+        
+        hourInterval = setInterval(() => {
+            if(!active) return;
+            hour++;
+
+            // LÓGICA DO FREDBEAR: Alterna toda vez que bate 4 AM
+            if(hour % 12 === 4 || (hour > 12 && hour % 24 === 4)) {
+                toggleFredbear(!fredbearActive);
+            }
+
+            // RESET DE NOITE (6 AM) - Mas não afeta o Fredbear se ele estiver ativo
+            if(hour % 6 === 0 && hour !== 0) {
+                difficulty++;
+                // Se o Fredbear não estiver ativo, os outros resetam posições para a nova dificuldade
+                if(!fredbearActive) { ai.bonnie = 0; ai.chica = 0; }
+            }
+
+            updateHUD();
+        }, 60000);
+        runAI();
+    }
+
+    function updateHUD() {
+        // Exibe a hora de 1 a 6 ciclicamente
+        let displayHour = hour % 6;
+        document.getElementById('h-val').innerText = displayHour === 0 ? '6' : displayHour;
+        document.getElementById('lvl-val').innerText = difficulty;
+    }
+
+    function toggleFredbear(on) {
+        fredbearActive = on;
+        sfx.risada.play();
+        if(on) {
+            ai.bonnie = 0; ai.chica = 0; ai.foxyLoc = 'none'; ai.freddles = 0;
+            sfx.respira.pause(); sfx.freddles.pause();
+            startFBInactivity();
+        } else {
+            if(fbInactivityTimer) clearTimeout(fbInactivityTimer);
+            ai.fredbear = 'none';
+        }
+    }
+
+    function startFBInactivity() {
+        if(!active || !fredbearActive) return;
+        if(fbInactivityTimer) clearTimeout(fbInactivityTimer);
+        let timeLimit = Math.max(3000, 5000 - (difficulty * 200));
+        fbInactivityTimer = setTimeout(() => {
+            if(active && fredbearActive && ai.fredbear !== 'none') doScare('fredbear');
+            else if(active && fredbearActive) startFBInactivity();
+        }, timeLimit);
+    }
+
+    function runAI() {
+        if(!active) return;
+        if(fredbearActive) {
+            let old = ai.fredbear;
+            ai.fredbear = ['left','right','bed','closet','none'][Math.floor(Math.random()*5)];
+            if(ai.fredbear !== old && ai.fredbear !== 'none') sfx.risada.play();
+        } else {
+            if(Math.random() > 0.4) ai.bonnie = Math.min(ai.bonnie + 1, 3);
+            if(Math.random() > 0.4) ai.chica = Math.min(ai.chica + 1, 3);
+            if(ai.foxyLoc !== 'closet' && Math.random() > 0.3) { ai.foxyLoc = 'closet'; ai.foxyStage = 1; sfx.foxyRun.play(); }
+            if(pos !== 'bed') ai.freddles = Math.min(ai.freddles + 1, 3);
+            if(ai.freddles > 0) { sfx.freddles.play(); sfx.freddles.volume = ai.freddles/3; } else sfx.freddles.pause();
+        }
+        setTimeout(runAI, 4000 - (difficulty * 150));
+    }
+
+    function updateVisuals() {
+        const sc = document.getElementById('sc-'+pos);
+        if(!isFlashing) { sc.classList.remove('light-on'); return; }
+        sc.classList.add('light-on');
+        if(fredbearActive && ai.fredbear === pos) {
+            const imgs = {'left':'fredbear_esquerda.jpg','right':'fredbear_direita.jpg','bed':'fredbear_cama.jpg','closet':'fredbear_armário.jpg'};
+            sc.style.backgroundImage = `url('${imgs[pos]}')`;
+        } else {
+            if(pos === 'left') sc.style.backgroundImage = ai.bonnie === 2 ? "url('bonnie_corredor.jpg')" : "url('corredor_esquerdo.jpg')";
+            if(pos === 'right') sc.style.backgroundImage = ai.chica === 2 ? "url('chica_corredor.jpg')" : "url('corredor_direito.jpg')";
+            if(pos === 'bed') sc.style.backgroundImage = ai.freddles > 0 ? `url('freddle_${ai.freddles}.jpg')` : "url('cama.jpg')";
+            if(pos === 'closet') sc.style.backgroundImage = ai.foxyLoc === 'closet' ? `url('foxy_fase${ai.foxyStage}.jpg')` : "url('armário.jpg')";
+        }
+    }
+
+    function goto(p) { pos = p; sfx.passinho.play(); sfx.respira.pause(); if(!fredbearActive && ((p==='left' && ai.bonnie===3) || (p==='right' && ai.chica===3))) sfx.respira.play(); document.querySelectorAll('.scene').forEach(s => s.style.display = 'none'); document.getElementById('sc-'+p).style.display = 'block'; document.getElementById('ui-actions').style.display = p === 'room' ? 'none' : 'flex'; document.getElementById('btn-back').style.display = p === 'room' ? 'none' : 'block'; updateVisuals(); }
+
+    document.getElementById('btn-light').onpointerdown = () => { if(doorClosed || !active) return; isFlashing = true; sfx.luz.play(); document.getElementById('flashlight-overlay').style.display = 'block'; updateVisuals(); if(fredbearActive && ai.fredbear === pos) { if(pos !== 'bed') setTimeout(() => { if(isFlashing) doScare('fredbear'); }, 850); else { ai.fredbear = 'none'; sfx.risada.play(); startFBInactivity(); } } else { if((pos === 'left' && ai.bonnie === 3) || (pos === 'right' && ai.chica === 3)) doScare(pos); if(pos === 'bed') ai.freddles = 0; } };
+    document.getElementById('btn-light').onpointerup = () => { isFlashing = false; document.getElementById('flashlight-overlay').style.display = 'none'; updateVisuals(); };
+    document.getElementById('btn-door').onpointerdown = () => { if(!active) return; doorClosed = true; document.getElementById('img-'+pos+'-closed').style.display = 'block'; if(fredbearActive && ai.fredbear === pos) { ai.fredbear = 'none'; sfx.risada.play(); startFBInactivity(); } else { if(pos === 'left' || pos === 'right') { ai.bonnie = 0; ai.chica = 0; sfx.respira.pause(); } } };
+    document.getElementById('btn-door').onpointerup = () => { doorClosed = false; document.querySelectorAll('.overlay-closed').forEach(o => o.style.display = 'none'); };
+    function handleBack() { doorClosed = false; goto('room'); }
+    function doScare(who) { active = false; sfx.scare.play(); document.getElementById('scare-overlay').style.backgroundImage = `url('jumpscare_${who}.jpg')`; document.getElementById('scare-overlay').style.display = 'block'; setTimeout(() => { document.getElementById('game-container').style.display = 'none'; document.getElementById('game-over-screen').style.display = 'flex'; document.getElementById('stats-display').innerText = `Sobreviveu até o Nível ${difficulty}`; }, 3000); }
+</script>
+</body>
+</html>
